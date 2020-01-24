@@ -58,7 +58,7 @@ def create_vsys_xml():
     vsys_root = ET.Element("set")
     set_system = ET.SubElement(vsys_root, "system")
     set_setting = ET.SubElement(set_system, "setting")
-    # <vsysX> X needs to be replaced with number of vsys, <vsys1>
+    # <vsysX> X needs to be replaced with vsys number, <vsys1>
     ET.SubElement(set_setting, "target-vsys").text = r"<vsysX>"
 
     ET.ElementTree(vsys_root)
