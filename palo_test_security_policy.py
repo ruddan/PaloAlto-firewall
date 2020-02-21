@@ -42,15 +42,22 @@ def main():
     )
 
     args = parser.parse_args()
+    get_matched_policy(args.source, args.user, args.dest, args.destport, args.protocol)
 
+
+def get_matched_policy(sip, username, dip, dport, protocol):
+    # Create xml
     vsys_xml = create_vsys_xml()
-    policy_xml = create_policy_xml(
-        args.source, args.user, args.dest, args.destport, args.protocol
-    )
+    policy_xml = create_policy_xml(sip, username, dip, dport, protocol)
+    # Create URL
     vsys_url = create_url(vsys_xml)
     policy_url = create_url(policy_xml)
-    api_data = api_call(vsys_url, policy_url)
-    xml_parse(api_data, args.source, args.user, args.dest)
+    # API call
+    matched_rules = api_call(vsys_url, policy_url)
+    # Parse API response
+    result = parse_xml(matched_rules)
+    # Print
+    print_result(result, sip, username, dip)
 
 
 def create_vsys_xml():
@@ -58,12 +65,11 @@ def create_vsys_xml():
     vsys_root = ET.Element("set")
     set_system = ET.SubElement(vsys_root, "system")
     set_setting = ET.SubElement(set_system, "setting")
-    # <vsysX> X needs to be replaced with vsys number, <vsys1>
-    ET.SubElement(set_setting, "target-vsys").text = r"<vsysX>"
+    # vsysX X needs to be replaced with vsys number, vsys1
+    ET.SubElement(set_setting, "target-vsys").text = r"vsysX"
 
     ET.ElementTree(vsys_root)
     xmlstring = ET.tostring(vsys_root)
-
     return xmlstring
 
 
@@ -72,8 +78,10 @@ def create_policy_xml(sip, usr, dip, dport, protocol):
     policy_root = ET.Element("test")
     security_policy = ET.SubElement(policy_root, "security-policy-match")
 
+    if usr is not None:
+        ET.SubElement(security_policy, "source-user").text = r"{}".format(usr)
+
     ET.SubElement(security_policy, "source").text = r"{}".format(sip)
-    ET.SubElement(security_policy, "source-user").text = r"{}".format(usr)
     ET.SubElement(security_policy, "destination").text = r"{}".format(dip)
     ET.SubElement(security_policy, "destination-port").text = r"{}".format(dport)
     ET.SubElement(security_policy, "protocol").text = r"{}".format(protocol)
@@ -97,7 +105,7 @@ def create_url(xml):
 
 
 def api_call(vsys_url, policy_url):
-    # Make the call
+    # Make the call, you need to add "verify=False" to requests if you dont have proper certificate
     requests.get(vsys_url)
     r_policy = requests.get(policy_url)
     api_data = r_policy.content
@@ -105,17 +113,35 @@ def api_call(vsys_url, policy_url):
     return api_data
 
 
-def xml_parse(api_data, sip, usr, dip):
-    # Convert xml to dict and print
-    ET.fromstring(api_data)
-    xml_dict = xmltodict.parse(api_data)
+def parse_xml(matched_rules_xml):
+    # Convert xml to dict, iterate over dict and append results
+    ET.fromstring(matched_rules_xml)
+    matched_rules = xmltodict.parse(matched_rules_xml)
 
-    for k, v in xml_dict.items():
-        print("\nUsername: {}".format(usr))
-        print("Source IP: {}".format(sip))
-        print("Destination IP: {}".format(dip))
-        print("Rule name: {}".format(v["result"]["rules"]["entry"]["@name"]))
-        print("Traffic flow: {}".format(v["result"]["rules"]["entry"]["action"]))
+    rule_one = next(iter(matched_rules))  # Get first key
+    rules = matched_rules[rule_one]  # Get the data for the key
+
+    try:
+        name = rules["result"]["rules"]["entry"]["@name"]
+        action = rules["result"]["rules"]["entry"]["action"]
+
+        result = {"name": name, "action": action, "error": None}
+    except KeyError:
+        result = {"error": rules["msg"]["line"]}
+    return result
+
+
+def print_result(result, sip, usr, dip):
+    if result["error"] is not None:
+        print(result["error"])
+        return
+
+    if usr is not None:
+        print(f"\nUsername: {usr}")
+    print(f"Source IP: {sip}")
+    print(f"Destination IP: {dip}")
+    print(f"Rule name: {result['name']}")
+    print(f"Traffic flow: {result['action']}\n")
 
 
 if __name__ == "__main__":
